@@ -57,12 +57,13 @@ def post_demand():
         remaining_plants_total_cost,
         remaining_plants_total_gen,
         iex_data,
+        backdown_total_cost,
         iex_gen,
         must_run,
         remaining_plants
     )
     VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
     )
     ON DUPLICATE KEY UPDATE
         banking_unit = VALUES(banking_unit),
@@ -77,6 +78,7 @@ def post_demand():
         remaining_plants_total_cost = VALUES(remaining_plants_total_cost),
         remaining_plants_total_gen = VALUES(remaining_plants_total_gen),
         iex_data = VALUES(iex_data),
+        backdown_total_cost = VALUES(backdown_total_cost),
         iex_gen = VALUES(iex_gen),
         must_run = VALUES(must_run),
         remaining_plants = VALUES(remaining_plants);
@@ -96,6 +98,7 @@ def post_demand():
         data.get("Remaining_Plants_Total_Cost"),
         data.get("Remaining_Plants_Total_Gen"),
         json.dumps(data.get("IEX_Data")),
+        data.get("Backdown_Cost"),
         data.get("IEX_Gen"),
         json.dumps(data.get("Must_Run")),
         json.dumps(data.get("Remaining_Plants"))
