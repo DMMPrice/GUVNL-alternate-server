@@ -31,7 +31,7 @@ def get_demand():
 @demand_bp.route('/', methods=['POST'])
 def post_demand():
     data = request.get_json()
-    
+
     # Get and convert the timestamp from the payload.
     ts_str = data.get('TimeStamp') or data.get('timestamp')
     if not ts_str:
@@ -44,43 +44,63 @@ def post_demand():
     # SQL query with ON DUPLICATE KEY UPDATE to replace old data with new data
     insert_query = """
     INSERT INTO demand_output (
-        timestamp, cost_per_block, demand_actual, demand_pred, iex_cost, last_price, 
-        must_run_total_cost, must_run_total_gen, remaining_plants_total_cost, 
-        iex_data, must_run, remaining_plants
+        timestamp,
+        banking_unit,
+        cost_per_block,
+        demand_actual,
+        demand_pred,
+        demand_banked,
+        iex_cost,
+        last_price,
+        must_run_total_cost,
+        must_run_total_gen,
+        remaining_plants_total_cost,
+        remaining_plants_total_gen,
+        iex_data,
+        iex_gen,
+        must_run,
+        remaining_plants
     )
     VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
     )
     ON DUPLICATE KEY UPDATE
+        banking_unit = VALUES(banking_unit),
         cost_per_block = VALUES(cost_per_block),
         demand_actual = VALUES(demand_actual),
         demand_pred = VALUES(demand_pred),
+        demand_banked = VALUES(demand_banked),
         iex_cost = VALUES(iex_cost),
         last_price = VALUES(last_price),
         must_run_total_cost = VALUES(must_run_total_cost),
         must_run_total_gen = VALUES(must_run_total_gen),
         remaining_plants_total_cost = VALUES(remaining_plants_total_cost),
+        remaining_plants_total_gen = VALUES(remaining_plants_total_gen),
         iex_data = VALUES(iex_data),
+        iex_gen = VALUES(iex_gen),
         must_run = VALUES(must_run),
         remaining_plants = VALUES(remaining_plants);
     """
-    
+
     values = (
         parsed_timestamp,
+        data.get("Banking_Unit"),
         data.get("Cost_Per_Block"),
         data.get("Demand(Actual)"),
         data.get("Demand(Pred)"),
+        data.get("Demand_Banked"),
         data.get("IEX_Cost"),
         data.get("Last_Price"),
         data.get("Must_Run_Total_Cost"),
         data.get("Must_Run_Total_Gen"),
         data.get("Remaining_Plants_Total_Cost"),
-        # Convert JSON objects/arrays to strings for MySQL
+        data.get("Remaining_Plants_Total_Gen"),
         json.dumps(data.get("IEX_Data")),
+        data.get("IEX_Gen"),
         json.dumps(data.get("Must_Run")),
         json.dumps(data.get("Remaining_Plants"))
     )
-    
+
     try:
         # Connect to MySQL database using the provided configuration.
         conn = mysql.connector.connect(**db_config)
