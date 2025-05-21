@@ -5,14 +5,14 @@ import mysql.connector
 from mysql.connector import Error
 import json  # Import json module to dump JSON data as string
 
-demand_bp = Blueprint('demand_bp', __name__)
+procurementOutput_bp = Blueprint('procurementOutput_bp', __name__)
 
 # MySQL database connection configuration
 db_config = {
-    'user': 'DB-Admin',
-    'password': 'DBTest@123',
-    'host': '69.62.74.149',
-    'database': 'guvnldev'
+    'user': 'root',
+    'password': '',
+    'host': 'localhost',
+    'database': 'guvnl_dev'
 }
 
 def parse_timestamp(ts_str):
@@ -24,11 +24,7 @@ def parse_timestamp(ts_str):
     return datetime.strptime(ts_str, '%a, %d %b %Y %H:%M:%S')
 
 
-@demand_bp.route('/', methods=['GET'])
-def get_demand():
-    return jsonify({"message": "GET endpoint on /demand is working"}), 200
-
-@demand_bp.route('/', methods=['POST'])
+@procurementOutput_bp.route('/', methods=['POST'])
 def post_demand():
     data = request.get_json()
 

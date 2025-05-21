@@ -2,9 +2,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-# from Routes.uploadRoutes import uploadApi
-# from Routes.plantroute import plant_bp
-from Routes.demandroute import demand_bp  # Import the demand blueprint
+from Routes.ProcurementOutputRoutes import procurementOutput_bp  # Import the demand blueprint
 
 app = Flask(__name__)
 
@@ -14,7 +12,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # Register blueprints.
 # app.register_blueprint(uploadApi, url_prefix='/upload')
 # app.register_blueprint(plant_bp, url_prefix='/plant')
-app.register_blueprint(demand_bp,url_prefix="/demand")  # Registers the /demand route.
+app.register_blueprint(procurementOutput_bp,url_prefix="/procurement-output")  # Registers the /demand route.
 
 @app.route('/')
 def hello_world():
