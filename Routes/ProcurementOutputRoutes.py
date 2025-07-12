@@ -1,116 +1,67 @@
-# Routes/demandRoute.py
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request, jsonify
+from pymongo import MongoClient
 from datetime import datetime
-import mysql.connector
-from mysql.connector import Error
-import json  # Import json module to dump JSON data as string
+from dotenv import load_dotenv
+import os
 
-procurementOutput_bp = Blueprint('procurementOutput_bp', __name__)
+load_dotenv()
 
-# MySQL database connection configuration
-db_config = {
-    'user': 'root',
-    'password': '',
-    'host': 'localhost',
-    'database': 'guvnl_dev'
-}
+mongoDemandOutput_bp = Blueprint('mongoDemandOutput_bp', __name__)
+
+# MongoDB setup
+mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+client = MongoClient(mongo_uri)
+db = client["powercasting"]
+collection = db["Demand_Output"]
+
 
 def parse_timestamp(ts_str):
-    """
-    Convert a timestamp string of format 'Sat, 01 Apr 2023 00:00:00 GMT'
-    into a Python datetime object.
-    """
+    """Convert 'Sat, 01 Apr 2023 00:00:00 GMT' to datetime object."""
     ts_str = ts_str.replace(" GMT", "")
     return datetime.strptime(ts_str, '%a, %d %b %Y %H:%M:%S')
 
 
-@procurementOutput_bp.route('/', methods=['POST'])
-def post_demand():
+@mongoDemandOutput_bp.route('/debug', methods=['GET'])
+def debug_view():
+    docs = list(collection.find({}, {"_id": 0}).limit(10))
+    return jsonify(docs), 200
+
+
+@mongoDemandOutput_bp.route('/', methods=['POST'])
+def post_demand_output():
     data = request.get_json()
 
-    # Get and convert the timestamp from the payload.
     ts_str = data.get('TimeStamp') or data.get('timestamp')
     if not ts_str:
         return jsonify({"error": "Timestamp is missing"}), 400
+
     try:
         parsed_timestamp = parse_timestamp(ts_str)
     except ValueError as e:
         return jsonify({"error": f"Invalid timestamp format: {e}"}), 400
 
-    # SQL query with ON DUPLICATE KEY UPDATE to replace old data with new data
-    insert_query = """
-    INSERT INTO demand_output (
-        timestamp,
-        banking_unit,
-        cost_per_block,
-        demand_actual,
-        demand_pred,
-        demand_banked,
-        iex_cost,
-        last_price,
-        must_run_total_cost,
-        must_run_total_gen,
-        remaining_plants_total_cost,
-        remaining_plants_total_gen,
-        iex_data,
-        backdown_total_cost,
-        iex_gen,
-        must_run,
-        remaining_plants
-    )
-    VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-    )
-    ON DUPLICATE KEY UPDATE
-        banking_unit = VALUES(banking_unit),
-        cost_per_block = VALUES(cost_per_block),
-        demand_actual = VALUES(demand_actual),
-        demand_pred = VALUES(demand_pred),
-        demand_banked = VALUES(demand_banked),
-        iex_cost = VALUES(iex_cost),
-        last_price = VALUES(last_price),
-        must_run_total_cost = VALUES(must_run_total_cost),
-        must_run_total_gen = VALUES(must_run_total_gen),
-        remaining_plants_total_cost = VALUES(remaining_plants_total_cost),
-        remaining_plants_total_gen = VALUES(remaining_plants_total_gen),
-        iex_data = VALUES(iex_data),
-        backdown_total_cost = VALUES(backdown_total_cost),
-        iex_gen = VALUES(iex_gen),
-        must_run = VALUES(must_run),
-        remaining_plants = VALUES(remaining_plants);
-    """
+    # Check if a document already exists for this timestamp
+    if collection.find_one({"TimeStamp": parsed_timestamp}):
+        return jsonify({"message": "Document with this TimeStamp already exists"}), 200
 
-    values = (
-        parsed_timestamp,
-        data.get("Banking_Unit"),
-        data.get("Cost_Per_Block"),
-        data.get("Demand(Actual)"),
-        data.get("Demand(Pred)"),
-        data.get("Demand_Banked"),
-        data.get("IEX_Cost"),
-        data.get("Last_Price"),
-        data.get("Must_Run_Total_Cost"),
-        data.get("Must_Run_Total_Gen"),
-        data.get("Remaining_Plants_Total_Cost"),
-        data.get("Remaining_Plants_Total_Gen"),
-        json.dumps(data.get("IEX_Data")),
-        data.get("Backdown_Cost"),
-        data.get("IEX_Gen"),
-        json.dumps(data.get("Must_Run")),
-        json.dumps(data.get("Remaining_Plants"))
-    )
+    doc = {"TimeStamp": parsed_timestamp}
+
+    # Check and include only available fields
+    optional_fields = [
+        "Backdown_Cost", "Backdown_Cost_Min", "Backdown_Unit", "Banking_Unit", "Cost_Per_Block", "Demand(Actual)",
+        "Demand(Pred)", "Demand_Banked",
+        "IEX_Cost", "Last_Price", "Must_Run_Total_Cost", "Must_Run_Total_Gen",
+        "Remaining_Plants_Total_Cost", "Remaining_Plants_Total_Gen", "IEX_Data",
+        "Backdown_Cost", "IEX_Gen", "Must_Run", "Remaining_Plants"
+    ]
+
+    for field in optional_fields:
+        if field in data:
+            doc[field] = data[field]
 
     try:
-        # Connect to MySQL database using the provided configuration.
-        conn = mysql.connector.connect(**db_config)
-        if conn.is_connected():
-            cursor = conn.cursor()
-            cursor.execute(insert_query, values)
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return jsonify({"message": "Data inserted/updated successfully"}), 201
-        else:
-            return jsonify({"error": "Failed to connect to the database"}), 500
-    except Error as e:
+        collection.insert_one(doc)
+        return jsonify({"message": "Document inserted successfully"}), 201
+
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
