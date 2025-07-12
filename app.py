@@ -5,6 +5,7 @@ from flask_cors import CORS
 from Routes.ProcurementOutputRoutes import mongoDemandOutput_bp  # Import the demand blueprint
 from Routes.DemandDataAdditionRoutes import demandAPI
 from Routes.IEXDataAdditionRoutes import iexAPI
+from Routes.PlantDataAddition import mongoPlant_bp
 
 app = Flask(__name__)
 
@@ -15,6 +16,8 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 app.register_blueprint(mongoDemandOutput_bp, url_prefix="/procurement-output")  # Registers the /demand route.
 app.register_blueprint(demandAPI, url_prefix='/demand')  # Registers the /demand route
 app.register_blueprint(iexAPI, url_prefix='/iex')
+app.register_blueprint(mongoPlant_bp, url_prefix='/plant-consumption')  # Registers the /plant-consumption route
+
 
 
 @app.route('/')

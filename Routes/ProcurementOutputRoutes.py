@@ -48,7 +48,8 @@ def post_demand_output():
 
     # Check and include only available fields
     optional_fields = [
-        "Banking_Unit", "Cost_Per_Block", "Demand(Actual)", "Demand(Pred)", "Demand_Banked",
+        "Backdown_Cost", "Backdown_Cost_Min", "Backdown_Unit", "Banking_Unit", "Cost_Per_Block", "Demand(Actual)",
+        "Demand(Pred)", "Demand_Banked",
         "IEX_Cost", "Last_Price", "Must_Run_Total_Cost", "Must_Run_Total_Gen",
         "Remaining_Plants_Total_Cost", "Remaining_Plants_Total_Gen", "IEX_Data",
         "Backdown_Cost", "IEX_Gen", "Must_Run", "Remaining_Plants"
