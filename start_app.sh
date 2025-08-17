@@ -3,7 +3,7 @@
 APP_NAME="guvnl_alternate_server"
 APP_MODULE="app:app"   # change "app:app" → (filename:Flask app variable)
 HOST="0.0.0.0"
-PORT=5050
+PORT=4000
 WORKERS=4
 
 # Activate venv if needed
