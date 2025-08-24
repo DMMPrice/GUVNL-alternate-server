@@ -2,3 +2,4 @@
 /.vscode
 start_gunicorn.sh
 venv/
+.venv/
