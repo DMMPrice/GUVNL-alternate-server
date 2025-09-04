@@ -1,88 +1,170 @@
+# iex_api.py
 from flask import Blueprint, request, jsonify
-from pymongo import MongoClient
+from pymongo import MongoClient, ReplaceOne, ASCENDING
 from datetime import datetime
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-iexAPI = Blueprint('iexAPI', __name__)
+iexAPI = Blueprint("iexAPI", __name__)
 
-# MongoDB setup
+# --- MongoDB setup ---
 mongo_uri = os.getenv("MONGO_URI")
-client = MongoClient(mongo_uri)
+client = MongoClient(mongo_uri, maxPoolSize=200)
 db = client["powercasting"]
-price_collection = db["IEX_Price"]
-iex_collection = db["IEX_Generation"]
+price_collection = db["IEX_Price_Test"]
+gen_collection = db["IEX_Generation_Test"]
+
+# Ensure unique index on TimeStamp for both collections
+try:
+    price_collection.create_index([("TimeStamp", ASCENDING)], unique=True)
+    gen_collection.create_index([("TimeStamp", ASCENDING)], unique=True)
+except Exception:
+    pass
+
+# --- Config ---
+CHUNK_SIZE = 50_000
+
+
+def _parse_timestamp(ts_val: str) -> datetime:
+    if not ts_val:
+        raise ValueError("empty TimeStamp")
+    try:
+        return datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return datetime.fromisoformat(ts_val)
+
+
+def _to_float(val, field_name: str) -> float:
+    if val is None or val == "":
+        raise ValueError(f"{field_name} empty")
+    return float(val)
 
 
 # 🔷 Route 1: Bulk insert IEX Price data
-@iexAPI.route('/price/bulk-add', methods=['POST'])
+@iexAPI.route("/price/bulk-add", methods=["POST"])
 def bulk_add_price_data():
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True, force=True)
         if not isinstance(data, list):
             return jsonify({"error": "Payload must be a list of records"}), 400
+        if not data:
+            return jsonify({"message": "No records received"}), 200
 
-        inserted = 0
-        replaced = 0
+        ops, total_upserts, total_matched, total_modified = [], 0, 0, 0
+        skipped_invalid, first_errors = 0, []
 
-        for item in data:
-            if "TimeStamp" not in item or "Actual" not in item or "Pred" not in item:
-                return jsonify({"error": "Each item must contain 'TimeStamp', 'Actual', and 'Pred'"}), 400
+        def flush_ops():
+            nonlocal ops, total_upserts, total_matched, total_modified
+            if not ops:
+                return
+            result = price_collection.bulk_write(
+                ops, ordered=False, bypass_document_validation=True
+            )
+            total_upserts += result.upserted_count or 0
+            total_matched += result.matched_count or 0
+            total_modified += result.modified_count or 0
+            ops = []
 
-            ts = datetime.fromisoformat(item["TimeStamp"])
-            actual = float(item["Actual"])
-            pred = float(item["Pred"])
+        for i, item in enumerate(data):
+            try:
+                ts = _parse_timestamp(item.get("TimeStamp"))
+                actual = _to_float(item.get("Actual"), "Actual")
+                pred = _to_float(item.get("Pred"), "Pred")
 
-            result = price_collection.delete_one({"TimeStamp": ts})
-            if result.deleted_count > 0:
-                replaced += 1
+                doc = {"TimeStamp": ts, "Actual": actual, "Pred": pred}
 
-            price_collection.insert_one({
-                "TimeStamp": ts,
-                "Actual": actual,
-                "Pred": pred
-            })
-            inserted += 1
+                ops.append(ReplaceOne({"TimeStamp": ts}, doc, upsert=True))
 
-        return jsonify({"message": f"{inserted} inserted, {replaced} replaced"}), 200
+                if len(ops) >= CHUNK_SIZE:
+                    flush_ops()
+
+            except Exception as ex:
+                skipped_invalid += 1
+                if len(first_errors) < 5:
+                    first_errors.append(
+                        {"row_index": i, "error": str(ex), "row_sample": item}
+                    )
+
+        flush_ops()
+
+        return jsonify(
+            {
+                "message": "Bulk add completed",
+                "received": len(data),
+                "inserted_new": total_upserts,
+                "replaced_existing": total_matched,
+                "modified_existing": total_modified,
+                "skipped_invalid": skipped_invalid,
+                "chunk_size": CHUNK_SIZE,
+                "sample_errors": first_errors,
+            }
+        ), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# 🔷 Route 2: Bulk insert IEX Quantity & Predicted Price data
-@iexAPI.route('/quantity/bulk-add', methods=['POST'])
+# 🔷 Route 2: Bulk insert IEX Generation data
+@iexAPI.route("/quantity/bulk-add", methods=["POST"])
 def bulk_add_iex_data():
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True, force=True)
         if not isinstance(data, list):
             return jsonify({"error": "Payload must be a list of records"}), 400
+        if not data:
+            return jsonify({"message": "No records received"}), 200
 
-        inserted = 0
-        replaced = 0
+        ops, total_upserts, total_matched, total_modified = [], 0, 0, 0
+        skipped_invalid, first_errors = 0, []
 
-        for item in data:
-            if "TimeStamp" not in item or "Qty_Pred" not in item or "Pred_Price" not in item:
-                return jsonify({"error": "Each item must contain 'TimeStamp', 'Qty_Pred', and 'Pred_Price'"}), 400
+        def flush_ops():
+            nonlocal ops, total_upserts, total_matched, total_modified
+            if not ops:
+                return
+            result = gen_collection.bulk_write(
+                ops, ordered=False, bypass_document_validation=True
+            )
+            total_upserts += result.upserted_count or 0
+            total_matched += result.matched_count or 0
+            total_modified += result.modified_count or 0
+            ops = []
 
-            ts = datetime.fromisoformat(item["TimeStamp"])
-            qty = float(item["Qty_Pred"])
-            price = float(item["Pred_Price"])
+        for i, item in enumerate(data):
+            try:
+                ts = _parse_timestamp(item.get("TimeStamp"))
+                qty = _to_float(item.get("Qty_Pred"), "Qty_Pred")
+                price = _to_float(item.get("Pred_Price"), "Pred_Price")
 
-            result = iex_collection.delete_one({"TimeStamp": ts})
-            if result.deleted_count > 0:
-                replaced += 1
+                doc = {"TimeStamp": ts, "Qty_Pred": qty, "Pred_Price": price}
 
-            iex_collection.insert_one({
-                "TimeStamp": ts,
-                "Qty_Pred": qty,
-                "Pred_Price": price
-            })
-            inserted += 1
+                ops.append(ReplaceOne({"TimeStamp": ts}, doc, upsert=True))
 
-        return jsonify({"message": f"{inserted} inserted, {replaced} replaced"}), 200
+                if len(ops) >= CHUNK_SIZE:
+                    flush_ops()
+
+            except Exception as ex:
+                skipped_invalid += 1
+                if len(first_errors) < 5:
+                    first_errors.append(
+                        {"row_index": i, "error": str(ex), "row_sample": item}
+                    )
+
+        flush_ops()
+
+        return jsonify(
+            {
+                "message": "Bulk add completed",
+                "received": len(data),
+                "inserted_new": total_upserts,
+                "replaced_existing": total_matched,
+                "modified_existing": total_modified,
+                "skipped_invalid": skipped_invalid,
+                "chunk_size": CHUNK_SIZE,
+                "sample_errors": first_errors,
+            }
+        ), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
