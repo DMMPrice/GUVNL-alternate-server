@@ -1,7 +1,7 @@
-# demand_api.py
 from flask import Blueprint, request, jsonify
-from pymongo import MongoClient, UpdateOne, ReplaceOne, ASCENDING
-from datetime import datetime
+from pymongo import MongoClient, ReplaceOne, ASCENDING, DESCENDING
+from bson import ObjectId
+from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
@@ -11,36 +11,28 @@ demandAPI = Blueprint("demandAPI", __name__)
 
 # --- MongoDB setup ---
 mongo_uri = os.getenv("MONGO_URI")
-client = MongoClient(mongo_uri, maxPoolSize=200)  # larger pool helps with bursts
+client = MongoClient(mongo_uri, maxPoolSize=200)
 db = client["powercasting"]
-collection = db["Demand_test"]
 
-# Ensure a unique index on TimeStamp (do this once at startup)
-# Unique index guarantees "one doc per TimeStamp" and makes upserts fast.
+approval_collection = db["Demand_approval"]
+main_collection = db["Demand"]
+
+# Ensure a unique index on TimeStamp in approval table
 try:
-    collection.create_index([("TimeStamp", ASCENDING)], unique=True)
+    approval_collection.create_index([("TimeStamp", ASCENDING)], unique=True)
 except Exception:
-    # Index may already exist or another process is creating it; safe to ignore
     pass
 
 # --- Config ---
-CHUNK_SIZE = 50_000  # tune for your infra (10k..100k is typical)
+CHUNK_SIZE = 50_000
 
 
 def _parse_timestamp(ts_val: str) -> datetime:
-    """
-    Fast path: strict 'YYYY-MM-DD HH:mm:ss'.
-    Fallback: datetime.fromisoformat for safety (handles 'YYYY-MM-DD HH:mm:ss' too).
-    Raises ValueError if invalid.
-    """
     if not ts_val:
         raise ValueError("empty TimeStamp")
-
-    # Try strict format first (fast & predictable)
     try:
         return datetime.strptime(ts_val, "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        # Fallback: fromisoformat (accepts 'YYYY-MM-DD HH:mm[:ss[.ffffff]]')
         return datetime.fromisoformat(ts_val)
 
 
@@ -50,17 +42,51 @@ def _to_float(val, field_name: str) -> float:
     return float(val)
 
 
+def get_ist_datetime():
+    """Return IST datetime object (not string)"""
+    utc_now = datetime.utcnow()
+    ist_now = utc_now + timedelta(hours=5, minutes=30)
+    return ist_now
+
+
+# ===========================================================
+# ✅ Existing: Bulk Add Demand Data
+# ===========================================================
 @demandAPI.route("/bulk-add", methods=["POST"])
 def bulk_add_demand_data():
     """
-    Accepts a JSON array of records:
-    [
-      {"TimeStamp": "2025-08-22 18:00:00", "Demand(Actual)": 123.4},
-      ...
-    ]
-    - "Demand(Pred)" is optional; if present, it’s stored.
-    - For same TimeStamp, document is replaced (upsert).
-    - Processes in chunks with bulk_write for high throughput.
+    Bulk Add Demand Data
+    ---
+    tags:
+      - Demand
+    consumes:
+      - application/json
+    parameters:
+      - in: header
+        name: X-User-Email
+        type: string
+        required: false
+        description: Email of uploader
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              TimeStamp:
+                type: string
+                example: "2025-08-22 18:00:00"
+              Demand(Actual):
+                type: number
+                example: 123.4
+              Demand(Pred):
+                type: number
+                example: 125.0
+    responses:
+      200:
+        description: Bulk insert/update summary
     """
     try:
         data = request.get_json(silent=True, force=True)
@@ -72,21 +98,24 @@ def bulk_add_demand_data():
         if total_received == 0:
             return jsonify({"message": "No records received"}), 200
 
+        user_email = (request.headers.get("X-User-Email") or "").strip()
+        now_utc = get_ist_datetime()
+
         ops: list[ReplaceOne] = []
         total_upserts = 0
         total_matched = 0
         total_modified = 0
         skipped_invalid = 0
-        first_errors = []  # collect a few sample errors for debugging
+        first_errors = []
 
         def flush_ops():
             nonlocal ops, total_upserts, total_matched, total_modified
             if not ops:
                 return
-            result = collection.bulk_write(
+            result = approval_collection.bulk_write(
                 ops,
                 ordered=False,
-                bypass_document_validation=True,  # skip schema checks for speed
+                bypass_document_validation=True,
             )
             total_upserts += result.upserted_count or 0
             total_matched += result.matched_count or 0
@@ -95,29 +124,24 @@ def bulk_add_demand_data():
 
         for i, item in enumerate(data):
             try:
-                # Required fields
                 ts_raw = item.get("TimeStamp")
                 act_raw = item.get("Demand(Actual)")
 
                 ts = _parse_timestamp(ts_raw)
                 actual = _to_float(act_raw, "Demand(Actual)")
 
-                # Optional predicted field (frontend may omit)
                 pred_present = "Demand(Pred)" in item and item.get("Demand(Pred)") != ""
-                if pred_present:
-                    predicted = _to_float(item.get("Demand(Pred)"), "Demand(Pred)")
-                else:
-                    predicted = None
+                predicted = _to_float(item.get("Demand(Pred)"), "Demand(Pred)") if pred_present else None
 
-                # Build clean document
                 doc = {
                     "TimeStamp": ts,
                     "Demand(Actual)": actual,
+                    "uploaded_by": user_email or None,
+                    "uploaded_at": now_utc,
                 }
                 if pred_present:
                     doc["Demand(Pred)"] = predicted
 
-                # Replace by timestamp (upsert=True ensures insert-or-replace)
                 ops.append(
                     ReplaceOne(
                         {"TimeStamp": ts},
@@ -126,7 +150,6 @@ def bulk_add_demand_data():
                     )
                 )
 
-                # Chunked flush
                 if len(ops) >= CHUNK_SIZE:
                     flush_ops()
 
@@ -142,11 +165,8 @@ def bulk_add_demand_data():
                     )
                 continue
 
-        # Flush any remaining operations
         flush_ops()
 
-        # inserted_new = upserts
-        # replaced_existing = matched_count (docs found & replaced; may include "no-op" replacements if identical)
         summary = {
             "message": "Bulk add completed",
             "received": total_received,
@@ -160,6 +180,121 @@ def bulk_add_demand_data():
             summary["sample_errors"] = first_errors
 
         return jsonify(summary), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ===========================================================
+# ✅ New: Get Demand Approvals
+# ===========================================================
+@demandAPI.route("/approvals", methods=["GET"])
+def get_demand_approvals():
+    """
+    Get all demand approval records
+    ---
+    tags:
+      - Demand
+    parameters:
+      - in: query
+        name: sort
+        type: string
+        required: false
+        description: Field to sort by (default TimeStamp)
+        example: TimeStamp
+      - in: query
+        name: order
+        type: string
+        required: false
+        description: asc or desc (default asc)
+        example: desc
+      - in: query
+        name: limit
+        type: integer
+        required: false
+        description: Number of records to fetch (default 100)
+        example: 50
+    responses:
+      200:
+        description: List of demand approval records
+    """
+    try:
+        sort_field = request.args.get("sort", "TimeStamp")
+        order = request.args.get("order", "asc").lower()
+        limit = int(request.args.get("limit", 100))
+
+        sort_order = ASCENDING if order == "asc" else DESCENDING
+
+        cursor = approval_collection.find().sort(sort_field, sort_order).limit(limit)
+        records = []
+        for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            records.append(doc)
+
+        return jsonify(records), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ===========================================================
+# ✅ New: Approve Demand Data
+# ===========================================================
+@demandAPI.route("/approvals/approve", methods=["POST"])
+def approve_demand_data():
+    """
+    Approve demand data → move from Demand_approval to Demand
+    ---
+    tags:
+      - Demand
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            ids:
+              type: array
+              items:
+                type: string
+              example: ["685e4144634cb7dfca945468", "685e4144634cb7dfca945469"]
+    responses:
+      200:
+        description: Migration summary
+    """
+    try:
+        body = request.get_json(force=True)
+        ids = body.get("ids", [])
+
+        if not ids or not isinstance(ids, list):
+            return jsonify({"error": "ids must be a non-empty list"}), 400
+
+        object_ids = [ObjectId(i) for i in ids]
+
+        docs = list(approval_collection.find({"_id": {"$in": object_ids}}))
+        if not docs:
+            return jsonify({"error": "No matching documents found"}), 404
+
+        ops = []
+        for doc in docs:
+            doc.pop("_id", None)  # remove old id
+            ops.append(
+                ReplaceOne({"TimeStamp": doc["TimeStamp"]}, doc, upsert=True)
+            )
+
+        if ops:
+            result = main_collection.bulk_write(ops, ordered=False)
+            approval_collection.delete_many({"_id": {"$in": object_ids}})
+
+            return jsonify({
+                "message": "Approval migration completed",
+                "migrated": len(docs),
+                "inserted_new": result.upserted_count or 0,
+                "updated_existing": result.modified_count or 0,
+                "deleted_from_approval": len(docs)
+            }), 200
+        else:
+            return jsonify({"message": "No operations executed"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
