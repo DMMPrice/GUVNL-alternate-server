@@ -357,6 +357,85 @@ def approve_price_data():
         return jsonify({"error": str(e)}), 500
 
 
+@iexAPI.route("/price/approvals/<approval_id>", methods=["PATCH"])
+def edit_price_approval(approval_id):
+    """
+    Edit a price approval record
+    ---
+    tags:
+      - IEX
+    parameters:
+      - in: path
+        name: approval_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            Actual:
+              type: number
+            Pred:
+              type: number
+    responses:
+      200:
+        description: Updated record
+    """
+    try:
+        data = request.get_json(force=True)
+        update_fields = {}
+
+        if "Actual" in data:
+            update_fields["Actual"] = _to_float(data["Actual"], "Actual")
+
+        if "Pred" in data:
+            update_fields["Pred"] = _to_float(data["Pred"], "Pred")
+
+        if not update_fields:
+            return jsonify({"error": "No valid fields provided"}), 400
+
+        result = price_collection.update_one(
+            {"_id": ObjectId(approval_id)},
+            {"$set": update_fields}
+        )
+
+        if result.matched_count == 0:
+            return jsonify({"error": "Approval record not found"}), 404
+
+        return jsonify({"message": "Price approval record updated", "fields_updated": update_fields}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@iexAPI.route("/price/approvals/<approval_id>", methods=["DELETE"])
+def delete_price_approval(approval_id):
+    """
+    Delete a price approval record
+    ---
+    tags:
+      - IEX
+    parameters:
+      - in: path
+        name: approval_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Record deleted
+    """
+    try:
+        result = price_collection.delete_one({"_id": ObjectId(approval_id)})
+        if result.deleted_count == 0:
+            return jsonify({"error": "Approval record not found"}), 404
+
+        return jsonify({"message": "Price approval record deleted"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ===========================================================
 # ✅ Approval APIs for Generation
 # ===========================================================
@@ -457,5 +536,84 @@ def approve_quantity_data():
             }), 200
         else:
             return jsonify({"message": "No operations executed"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@iexAPI.route("/quantity/approvals/<approval_id>", methods=["PATCH"])
+def edit_quantity_approval(approval_id):
+    """
+    Edit a generation (quantity) approval record
+    ---
+    tags:
+      - IEX
+    parameters:
+      - in: path
+        name: approval_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            Qty_Pred:
+              type: number
+            Pred_Price:
+              type: number
+    responses:
+      200:
+        description: Updated record
+    """
+    try:
+        data = request.get_json(force=True)
+        update_fields = {}
+
+        if "Qty_Pred" in data:
+            update_fields["Qty_Pred"] = _to_float(data["Qty_Pred"], "Qty_Pred")
+
+        if "Pred_Price" in data:
+            update_fields["Pred_Price"] = _to_float(data["Pred_Price"], "Pred_Price")
+
+        if not update_fields:
+            return jsonify({"error": "No valid fields provided"}), 400
+
+        result = gen_collection.update_one(
+            {"_id": ObjectId(approval_id)},
+            {"$set": update_fields}
+        )
+
+        if result.matched_count == 0:
+            return jsonify({"error": "Approval record not found"}), 404
+
+        return jsonify({"message": "Quantity approval record updated", "fields_updated": update_fields}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@iexAPI.route("/quantity/approvals/<approval_id>", methods=["DELETE"])
+def delete_quantity_approval(approval_id):
+    """
+    Delete a generation (quantity) approval record
+    ---
+    tags:
+      - IEX
+    parameters:
+      - in: path
+        name: approval_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Record deleted
+    """
+    try:
+        result = gen_collection.delete_one({"_id": ObjectId(approval_id)})
+        if result.deleted_count == 0:
+            return jsonify({"error": "Approval record not found"}), 404
+
+        return jsonify({"message": "Quantity approval record deleted"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

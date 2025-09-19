@@ -11,6 +11,7 @@ from Routes.DemandDataAdditionRoutes import demandAPI
 from Routes.IEXDataAdditionRoutes import iexAPI
 from Routes.PlantDataAddition import plantAPI
 from Routes.transaction_api import transactionAPI
+from Routes.BankingChargeAdditionRoute import bankingAPI
 
 app = Flask(__name__)
 
@@ -40,6 +41,7 @@ app.register_blueprint(mongoDemandOutput_bp, url_prefix="/procurement-output")
 app.register_blueprint(demandAPI, url_prefix="/demand")
 app.register_blueprint(iexAPI, url_prefix="/iex")
 app.register_blueprint(plantAPI, url_prefix="/plant-consumption")
+app.register_blueprint(bankingAPI, url_prefix="/baking-charges")
 app.register_blueprint(transactionAPI, url_prefix="/transaction")
 
 

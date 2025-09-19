@@ -298,3 +298,86 @@ def approve_demand_data():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@demandAPI.route("/approvals/<approval_id>", methods=["PATCH"])
+def edit_demand_approval(approval_id):
+    """
+    Edit a demand approval record
+    ---
+    tags:
+      - Demand
+    parameters:
+      - in: path
+        name: approval_id
+        type: string
+        required: true
+        description: MongoDB ObjectId of the approval record
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            Demand(Actual):
+              type: number
+            Demand(Pred):
+              type: number
+    responses:
+      200:
+        description: Record updated successfully
+    """
+    try:
+        data = request.get_json(force=True)
+        update_fields = {}
+
+        if "Demand(Actual)" in data:
+            update_fields["Demand(Actual)"] = _to_float(data["Demand(Actual)"], "Demand(Actual)")
+
+        if "Demand(Pred)" in data:
+            update_fields["Demand(Pred)"] = _to_float(data["Demand(Pred)"], "Demand(Pred)")
+
+        if not update_fields:
+            return jsonify({"error": "No valid fields provided for update"}), 400
+
+        result = approval_collection.update_one(
+            {"_id": ObjectId(approval_id)},
+            {"$set": update_fields}
+        )
+
+        if result.matched_count == 0:
+            return jsonify({"error": "Approval record not found"}), 404
+
+        return jsonify({"message": "Approval record updated", "updated_fields": update_fields}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@demandAPI.route("/approvals/<approval_id>", methods=["DELETE"])
+def delete_demand_approval(approval_id):
+    """
+    Delete a demand approval record
+    ---
+    tags:
+      - Demand
+    parameters:
+      - in: path
+        name: approval_id
+        type: string
+        required: true
+        description: MongoDB ObjectId of the approval record
+    responses:
+      200:
+        description: Record deleted successfully
+    """
+    try:
+        result = approval_collection.delete_one({"_id": ObjectId(approval_id)})
+
+        if result.deleted_count == 0:
+            return jsonify({"error": "Approval record not found"}), 404
+
+        return jsonify({"message": "Approval record deleted"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
