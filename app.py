@@ -95,7 +95,7 @@ def hello_world():
       200:
         description: Returns a welcome message
     """
-    return jsonify({"message": "GUVNL Alternative Server is running!"})
+    return jsonify({"message": "GUVNL Alternative Server for Audit is running!"})
 
 
 if __name__ == '__main__':
