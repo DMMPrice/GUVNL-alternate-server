@@ -4,7 +4,6 @@ pipeline {
     environment {
         IMAGE_NAME = "dmmprice/guvnl-alternate-server"
         CONTAINER_NAME = "guvnl-alternate-server"
-        ENV_FILE = "/opt/guvnl-alt/.env"
     }
 
     stages {
@@ -45,21 +44,26 @@ pipeline {
         stage('Deploy Container on VPS') {
             steps {
                 script {
-                    sh """
-                      echo "Pulling latest image on VPS (same host)..."
-                      docker pull ${IMAGE_NAME}:latest
+                    // Use the secret .env file from Jenkins credentials
+                    withCredentials([file(credentialsId: 'guvnl-alt-env-file', variable: 'ENV_FILE')]) {
+                        sh """
+                          echo "Using env file at: $ENV_FILE"
 
-                      echo "Stopping old container if exists..."
-                      docker stop ${CONTAINER_NAME} || true
-                      docker rm ${CONTAINER_NAME} || true
+                          echo "Pulling latest image..."
+                          docker pull ${IMAGE_NAME}:latest
 
-                      echo "Starting new container..."
-                      docker run -d \\
-                        --name ${CONTAINER_NAME} \\
-                        -p 4000:4000 \\
-                        --env-file ${ENV_FILE} \\
-                        ${IMAGE_NAME}:latest
-                    """
+                          echo "Stopping old container if exists..."
+                          docker stop ${CONTAINER_NAME} || true
+                          docker rm ${CONTAINER_NAME} || true
+
+                          echo "Starting new container..."
+                          docker run -d \\
+                            --name ${CONTAINER_NAME} \\
+                            -p 4000:4000 \\
+                            --env-file "$ENV_FILE" \\
+                            ${IMAGE_NAME}:latest
+                        """
+                    }
                 }
             }
         }
@@ -67,7 +71,6 @@ pipeline {
 
     post {
         always {
-            // Clean up dangling local images on Jenkins host
             sh 'docker image prune -f || true'
         }
     }
