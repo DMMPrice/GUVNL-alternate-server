@@ -3,4 +3,4 @@
 start_gunicorn.sh
 venv/
 .venv/
-.env
+./.env
