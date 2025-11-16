@@ -44,11 +44,8 @@ pipeline {
         stage('Deploy Container on VPS') {
             steps {
                 script {
-                    // Use the secret .env file from Jenkins credentials
                     withCredentials([file(credentialsId: 'guvnl-alt-env-file', variable: 'ENV_FILE')]) {
                         sh """
-                          echo "Using env file at: $ENV_FILE"
-
                           echo "Pulling latest image..."
                           docker pull ${IMAGE_NAME}:latest
 
@@ -56,10 +53,10 @@ pipeline {
                           docker stop ${CONTAINER_NAME} || true
                           docker rm ${CONTAINER_NAME} || true
 
-                          echo "Starting new container..."
+                          echo "Starting new container on port 4002..."
                           docker run -d \\
                             --name ${CONTAINER_NAME} \\
-                            -p 4000:4000 \\
+                            -p 4002:4000 \\
                             --env-file "$ENV_FILE" \\
                             ${IMAGE_NAME}:latest
                         """
